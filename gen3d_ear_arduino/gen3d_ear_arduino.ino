@@ -24,19 +24,20 @@
  *   Upload Speed:     921600
  */
 
-#define VERSION       "1.1"
+#define VERSION       "1.5"
 
 // -- config --
 #define ADC_PIN        7      // GPIO1 = ADC1_CH0
 #define SAMPLE_COUNT   256    // samples per window
 #define SAMPLE_US      125    // ~8kHz
-#define FREQ_CENTRE    800    // Hz -- maps to zero offset
+#define FREQ_CENTRE    1700  // Hz -- maps to zero offset (stepper range ~800-3000Hz)
 #define FREQ_RANGE     1500   // Hz -- +/- range
-#define AMP_FLOOR      80     // ADC units -- noise floor
-#define AMP_SCALE      500    // ADC units -- full scale amplitude
+#define AMP_FLOOR      1     // ADC units -- noise floor
+#define AMP_SCALE      0.5   // rms deviation for full +/-1 output swing
 #define SEND_INTERVAL  100    // ms between serial outputs
 
 int samples[SAMPLE_COUNT];
+float g_freqHz = 0.0f;
 unsigned long lastSend = 0;
 
 void setup() {
@@ -66,6 +67,8 @@ float listenToMachine() {
   }
   float rms = sqrt(variance / SAMPLE_COUNT);
 
+ //Serial.print("rms:"); Serial.println(rms);  // <-- ADD THIS LINE 
+
   // silence -- printer is still
   if (rms < AMP_FLOOR) return 0.0f;
 
@@ -77,23 +80,27 @@ float listenToMachine() {
   float windowSec = (float)(SAMPLE_COUNT * SAMPLE_US) / 1000000.0f;
   float freqHz = (crossings / 2.0f) / windowSec;
 
+  g_freqHz = freqHz;
   // normalise frequency around FREQ_CENTRE
   float freqNorm = (freqHz - FREQ_CENTRE) / (float)FREQ_RANGE;
   freqNorm = max(-1.0f, min(1.0f, freqNorm));
 
   // scale by amplitude
-  float ampNorm = min(1.0f, (rms - AMP_FLOOR) / (float)AMP_SCALE);
-
-  return freqNorm * ampNorm;
+  // EMA auto-calibrates centre to ambient -- no manual tuning needed
+  static float avg_rms = -1.0f;
+  if (avg_rms < 0) avg_rms = rms;
+  avg_rms = avg_rms * 0.95f + rms * 0.05f;  // ~20-sample window
+  float voice = (rms - avg_rms) / (float)AMP_SCALE;  // +/- around mean
+  return max(-1.0f, min(1.0f, voice));
 }
-
 void loop() {
   float voice = listenToMachine();
 
   unsigned long now = millis();
   if (now - lastSend >= SEND_INTERVAL) {
+    Serial.print(g_freqHz, 1);
+    Serial.print(',');
     Serial.println(voice, 4);
     lastSend = now;
   }
 }
-

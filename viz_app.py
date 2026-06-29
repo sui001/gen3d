@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from flask import Flask, Response, request
 import json, time, threading, sys
 sys.path.insert(0, '/home/pi/gen3d')
@@ -37,7 +38,7 @@ button:disabled { opacity:0.35; cursor:default; }
 </style>
 </head>
 <body>
-<h2>gen3d <span style="font-size:10px;color:#444">v1.3</span></h2>
+<h2>gen3d <span style="font-size:10px;color:#444">v1.4</span></h2>
 <canvas id="c" width="500" height="500"></canvas>
 
 <div id="statusbar">
@@ -52,19 +53,20 @@ button:disabled { opacity:0.35; cursor:default; }
   <label>sides (0=circle)<input id="pSides"   type="number" value="0"   min="0" max="12"></label>
   <label>diameter mm<input      id="pDiam"    type="number" value="50"  min="10" max="150"></label>
   <label>n points<input         id="pPoints"  type="number" value="72"  min="12" max="360"></label>
-  <label>nozzle dia mm<input    id="pNozzleDia" type="number" value="0.8" step="0.1" min="0.2" max="2.0" oninput="validate()"></label>
-  <label>line width mm<input    id="pLine"    type="number" value="0.8" step="0.1" min="0.2" max="2.0" oninput="validate()"></label>
-  <label>layer height mm<input  id="pLayerH"  type="number" value="0.3" step="0.05" min="0.1" max="0.6" oninput="validate()"></label>
+  <label>nozzle dia mm<input    id="pNozzleDia" type="number" value="1.5" step="0.1" min="0.2" max="2.0" oninput="validate()"></label>
+  <label>line width mm<input    id="pLine"    type="number" value="2" step="0.1" min="0.2" max="2.0" oninput="validate()"></label>
+  <label>layer height mm<input  id="pLayerH"  type="number" value="0.7" step="0.1" min="0.1" max="2.0" oninput="validate()"></label>
   <label>total layers<input     id="pLayers"  type="number" value="40"  min="1" max="500"></label>
-  <label>base layers<input      id="pBase"    type="number" value="3"   min="0" max="20"></label>
+  <label>base layers<input      id="pBase"    type="number" value="1"   min="0" max="20"></label>
   <label>max overhang %<input   id="pOverhang" type="number" value="40" min="5" max="80"></label>
-  <label>print speed mm/s<input id="pSpeed"   type="number" value="20"  min="5" max="80" oninput="validate();document.getElementById('speedSlider').value=this.value;document.getElementById('speedVal').textContent=this.value+'mm/s'"></label>
+  <label>print speed mm/s<input id="pSpeed"   type="number" value="15"  min="5" max="80" oninput="validate();document.getElementById('speedSlider').value=this.value;document.getElementById('speedVal').textContent=this.value+'mm/s'"></label>
   <label>flow %<input           id="pFlow"    type="number" value="100" min="1" max="1000" oninput="syncFlowSlider(this.value)"></label>
   <label>nozzle temp C<input    id="pNozzle"  type="number" value="210" min="150" max="280" oninput="document.getElementById('tempSlider').value=this.value;document.getElementById('tempVal').textContent=this.value+'°C'"></label>
   <label>bed temp C<input       id="pBed"     type="number" value="60"  min="0" max="110"></label>
   <label>sensor centre °C<input id="pSCentre" type="number" value="48"  min="0" max="100" step="0.5"></label>
   <label>sensor range °C<input  id="pSRange"  type="number" value="10"  min="1" max="80"  step="0.5"></label>
   <label>sensor amp mm<input    id="pSAmp"    type="number" value="5"   min="0.1" max="30" step="0.5"></label>
+  <label>sensor source<select id="pSSource" onchange="onSensorSourceChange()" style="background:#1a1a1a;color:#ccc;border:1px solid #333;padding:3px 5px;font-family:monospace;font-size:11px;width:100%"><option value="cpu">cpu temp</option><option value="sound" selected>sound (ESP32)</option></select></label>
 </div>
 <div id="warnings" style="font-size:11px;color:#c66;min-height:14px;text-align:center"></div>
 
@@ -106,6 +108,7 @@ function params() {
     sensor_centre: parseFloat(document.getElementById('pSCentre').value),
     sensor_range:  parseFloat(document.getElementById('pSRange').value),
     sensor_amp:    parseFloat(document.getElementById('pSAmp').value),
+    sensor_source: document.getElementById('pSSource').value,
     line_width:   parseFloat(document.getElementById('pLine').value),
     layer_height: parseFloat(document.getElementById('pLayerH').value),
     total_layers: parseInt(document.getElementById('pLayers').value),
@@ -203,6 +206,15 @@ function stopTempPoll() {
   if (tempPollInterval) { clearInterval(tempPollInterval); tempPollInterval = null; }
 }
 
+function onSensorSourceChange() {
+  const isCpu = document.getElementById("pSSource").value === "cpu";
+  ["pSCentre","pSRange"].forEach(function(id) {
+    document.getElementById(id).parentElement.style.opacity = isCpu ? "1" : "0.3";
+    document.getElementById(id).disabled = !isCpu;
+  });
+}
+onSensorSourceChange();
+
 // Run on load
 validate();
 
@@ -233,7 +245,12 @@ function updateStatus(d) {
   if (d.layer !== undefined) document.getElementById('sLayer').textContent =
     d.layer + (d.is_base ? ' [base]' : '');
   if (d.z !== undefined) document.getElementById('sZ').textContent = d.z.toFixed(2);
-  if (d.temp !== undefined) document.getElementById('sTemp').textContent = d.temp.toFixed(1);
+  if (d.temp !== undefined) {
+      const isSound = document.getElementById("pSSource").value === "sound";
+      document.getElementById("sSrcLabel").textContent = isSound ? "sound" : "cpu";
+      document.getElementById("sTempUnit").textContent = isSound ? "mm" : "�C";
+      document.getElementById("sTemp").textContent = d.temp.toFixed(isSound ? 2 : 1);
+    }
   if (d.radius_delta !== undefined) {
     const rd = d.radius_delta;
     document.getElementById('direction').textContent = rd > 0.01 ? '▲' : rd < -0.01 ? '▼' : '─';
@@ -307,6 +324,7 @@ def parse_params(args):
     p['sensor_centre']  = float(args.get('sensor_centre',  p.get('sensor_centre', 50.0)))
     p['sensor_range']   = float(args.get('sensor_range',   p.get('sensor_range',  40.0)))
     p['sensor_amp']     = float(args.get('sensor_amp',     p.get('sensor_amp',     5.0)))
+    p['sensor_source'] = args.get('sensor_source', 'cpu')
     p['line_width']   = float(args.get('line_width', p['line_width']))
     p['layer_height'] = float(args.get('layer_height', p['layer_height']))
     p['total_layers'] = int(args.get('total_layers', p['total_layers']))
@@ -348,9 +366,9 @@ def stream_run(p, dry_run=False):
 
     def do_run():
         try:
-            from main import run_print, read_cpu_temp
+            from main import run_print
             run_print(p=p, dry_run=dry_run, on_layer=on_layer_combined,
-                      on_point=on_point, sensor_fn=read_cpu_temp,
+                      on_point=on_point, sensor_fn=None,
                       stop_flag=_stop_flag)
         except Exception as ex:
             err[0] = str(ex)
@@ -452,3 +470,6 @@ def print_stream():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
+
+
+
