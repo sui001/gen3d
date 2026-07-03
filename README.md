@@ -1,10 +1,10 @@
-# gen3d — Birch as Cybernetic System
+# gen3d — a sensor driven realtime gcode server. 
 
-A generative 3D printer that listens to itself.
+itteration #1: A generative 3D printer that is self referencing.
 
 The printer's own sound — the whine and groan of its stepper motors — is picked up by a microphone or vibration sensor on the ESP32-S3, streamed to the Pi, and fed back as the sculpting signal. High-frequency motor noise expands each layer outward; low, grinding movement contracts it. Silence produces no change. The object that emerges is a physical record of the machine's own voice during its making.
 
-The second strand of the project is a **roaming printer**: an Ender 3 mounted on a wheeled chassis that wanders a space, parks, sprays a patch of floor with hairspray, prints a small blob directly onto it, then moves on — leaving little sculptures scattered around like a cat that has been somewhere.
+The second strand of the project is a **roaming printer**: an Ender 3 mounted on a wheeled chassis that wanders a space, galleries, possibly sprays a patch of floor with hairspray, prints a generated blob directly onto it, then moves on — leaving little sculptures scattered around like a animal that is pooping in the wild.
 
 ---
 
