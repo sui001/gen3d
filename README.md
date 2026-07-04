@@ -4,7 +4,7 @@ itteration #1: A generative 3D printer that is self referencing.
 
 The printer's own sound — the whine and groan of its stepper motors — is picked up by a microphone or vibration sensor on the ESP32-S3, streamed to the Pi, and fed back as the sculpting signal. High-frequency motor noise expands each layer outward; low, grinding movement contracts it. Silence produces no change. The object that emerges is a physical record of the machine's own voice during its making.
 
-The second strand of the project is a **roaming printer**: an Ender 3 mounted on a wheeled chassis that wanders a space, galleries, possibly sprays a patch of floor with hairspray, prints a generated blob directly onto it, then moves on — leaving little sculptures scattered around like a animal that is pooping in the wild.
+The second strand of the project is **CREEP** — *Cybernetic Reactive Errant Extruding Printer*: a wheeled chassis that wanders a space, galleries, possibly sprays a patch of floor with hairspray, prints a generated blob directly onto it, then moves on — leaving little sculptures scattered around like an animal that is pooping in the wild. Errant in every sense: straying from the correct path, making printing errors, depositing plastic where plastic has no business being.
 
 ---
 
@@ -120,7 +120,7 @@ python main.py --sensor-source cpu
 
 ---
 
-## Roaming printer
+## CREEP — Cybernetic Reactive Errant Extruding Printer
 
 The robot wanders a floor area, parking at each location to print a small blob directly onto the surface, then moves on.
 
