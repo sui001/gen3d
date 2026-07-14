@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "convention-run",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NonInteractive", "-File", "convention_run/server.ps1"],
+      "port": 3456
+    },
+    {
+      "name": "simulator.html",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NonInteractive", "-File", "gen2d/serve.ps1"],
+      "port": 5173
+    }
+  ]
+}
