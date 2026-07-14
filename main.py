@@ -27,6 +27,8 @@ DEFAULTS = dict(
     sensor_centre = 48.0,
     sensor_range  = 10.0,
     sensor_amp    = 5.0,
+    pitch_centre_hz = 400.0,
+    pitch_range_hz  = 300.0,
 )
 
 
@@ -207,6 +209,12 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
         sides=p['sides'], diameter=p['diameter'], n_points=p['n_points'],
         line_width=p['line_width'], max_overhang_pct=p['max_overhang'],
         print_speed=p['print_speed'], sample_interval=0.5,
+        wobble_amp=p.get('wobble_amp', 0.0),
+        wobble_freq=int(p.get('wobble_freq', 3)),
+        phase_drift=p.get('phase_drift', 0.15),
+        point_smooth_mm=p.get('point_smooth_mm', 2.0),
+        pitch_centre_hz=p.get('pitch_centre_hz', 400.0),
+        pitch_range_hz=p.get('pitch_range_hz', 300.0),
         sensor_read_fn=sensor_fn,
         sensor_to_target_fn=sensor_to_offset,
     )
