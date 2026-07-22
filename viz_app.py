@@ -10,6 +10,11 @@ _cmd_queue = []          # real-time commands injected mid-print
 _cmd_lock = threading.Lock()
 _printer_ref = [None]    # live reference to Printer object during a print
 
+# ── idle jog / pre-prime state (browser jog console) ─────────────────────────
+_jog_printer = [None]        # Printer held open while jogging (idle only)
+_jog_lock    = threading.Lock()
+_jog_e_pos   = [0.0]         # cumulative rod mm since connect/home
+
 # ── broadcast state (survives browser refresh mid-print) ─────────────────────
 _print_active   = threading.Event()   # set while a print/viz thread is running
 _broadcast_qs   = []                  # one Queue per connected SSE client
@@ -71,6 +76,8 @@ button:disabled { opacity:0.35; cursor:default; }
 </style>
 </head>
 <body>
+<button id="btnEstop" onclick="estop()" title="stop host streaming + fire M112 (power switch is the ultimate stop)"
+        style="position:fixed;top:10px;right:10px;z-index:100;border:2px solid #e33;color:#fff;background:#a11;font-weight:bold;font-size:14px;padding:10px 20px;cursor:pointer">&#9632; E-STOP</button>
 <h2>gen3d <span style="font-size:10px;color:#444">{VERSION}</span></h2>
 <canvas id="c" width="500" height="500"></canvas>
 
@@ -133,6 +140,36 @@ button:disabled { opacity:0.35; cursor:default; }
   <button id="btnRecon" onclick="reconnect()">reconnect</button>
   <button id="btnStop"  onclick="stopAll(true)" disabled>stop</button>
   <button id="btnSave" onclick="saveDefaults()" style="border-color:#46a;color:#88d;font-size:11px;padding:4px 10px;">save as default</button>
+</div>
+
+<div id="jogPanel" style="border:1px solid #333;padding:10px;width:500px;display:flex;flex-direction:column;gap:8px;font-size:11px;color:#888">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <b style="color:#aaa">jog / pre-prime</b>
+    <span>rod <b id="jEpos" style="color:#8d8">0.000</b>mm &nbsp; <span id="jState" style="color:#a66">disconnected</span></span>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <button id="jConnect" onclick="jogConnect()" style="border-color:#46a;color:#88d">connect</button>
+    <span>E step</span>
+    <select id="jEstep" style="background:#1a1a1a;color:#ccc;border:1px solid #333;font-family:monospace">
+      <option>0.05</option><option>0.1</option><option selected>0.2</option><option>0.4</option><option>0.8</option><option>1.5</option>
+    </select>
+    <button onclick="jog('e', estep())">&#9650; extrude</button>
+    <button onclick="jog('e', -estep())">&#9660; retract</button>
+    <button onclick="jog('prime', estep()*5)" style="border-color:#4a6;color:#8d8">PRIME 5&times;</button>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <span>Z step</span>
+    <select id="jZstep" style="background:#1a1a1a;color:#ccc;border:1px solid #333;font-family:monospace">
+      <option>0.05</option><option>0.1</option><option>0.5</option><option selected>1.0</option><option>5.0</option><option>10.0</option>
+    </select>
+    <button onclick="jog('z', zstep())">Z &#8593;</button>
+    <button onclick="jog('z', -zstep())">Z &#8595;</button>
+    <button onclick="jog('home')">home</button>
+    <button onclick="jog('z0')">Z0</button>
+    <button onclick="jog('disable')">motors off</button>
+    <button onclick="jog('pos')">pos</button>
+  </div>
+  <div id="jMsg" style="min-height:14px;color:#666"></div>
 </div>
 
 <script>
@@ -295,6 +332,52 @@ function loadDefaults() {
   });
 }
 
+// ── jog / pre-prime console ──────────────────────────────────────────────
+let jogConnected = false;
+function estep(){ return parseFloat(document.getElementById('jEstep').value); }
+function zstep(){ return parseFloat(document.getElementById('jZstep').value); }
+function setJogUI(conn){
+  jogConnected = conn;
+  var st = document.getElementById('jState');
+  st.textContent = conn ? 'connected' : 'disconnected';
+  st.style.color = conn ? '#6a6' : '#a66';
+  document.getElementById('jConnect').textContent = conn ? 'disconnect' : 'connect';
+}
+function jogMsg(m){ document.getElementById('jMsg').textContent = m || ''; }
+
+function estop(){
+  // no confirm — an e-stop must be instant
+  fetch('/estop', {method:'POST'}).then(r=>r.json()).then(d=>{
+    jogMsg(d.msg || 'E-STOP');
+  }).catch(()=>{});
+  if (es) { es.close(); es = null; }
+  document.getElementById('sLayer').textContent = 'E-STOP';
+  stopAll(false);
+  setJogUI(false);
+}
+function jogConnect(){
+  var act = jogConnected ? 'disconnect' : 'connect';
+  jogMsg(jogConnected ? 'disconnecting…' : 'connecting… (board resets, ~12s)');
+  fetch('/jog?action=' + act, {method:'POST'}).then(r=>r.json()).then(d=>{
+    setJogUI(!!d.connected);
+    if (d.e_pos !== undefined) document.getElementById('jEpos').textContent = d.e_pos.toFixed(3);
+    jogMsg(d.msg);
+  }).catch(e=>jogMsg('error: ' + e));
+}
+function jog(action, mm){
+  var url = '/jog?action=' + action;
+  if (mm !== undefined) url += '&mm=' + mm;
+  fetch(url, {method:'POST'}).then(r=>r.json()).then(d=>{
+    if (d.connected === false) setJogUI(false);
+    if (d.e_pos !== undefined) document.getElementById('jEpos').textContent = d.e_pos.toFixed(3);
+    jogMsg(d.ok ? d.msg : ('⚠ ' + (d.msg || 'failed')));
+  }).catch(e=>jogMsg('error: ' + e));
+}
+fetch('/jog_status').then(r=>r.json()).then(d=>{
+  setJogUI(!!d.connected);
+  if (d.e_pos !== undefined) document.getElementById('jEpos').textContent = d.e_pos.toFixed(3);
+}).catch(()=>{});
+
 loadDefaults();
 validate();
 
@@ -397,12 +480,14 @@ function startPrint() {
       startTempPoll(); startFreqPoll();
       openStream('/print_stream?' + new URLSearchParams(params()));
     } else {
-      if (!confirm('Start print? Confirm: bed clear, filament loaded.')) return;
+      if (!confirm('Start print? Confirm: clay primed (nozzle gushing), floor clear.')) return;
+      setJogUI(false);  // server closes the jog connection to take the port
       startTempPoll(); startFreqPoll();
       openStream('/print_stream?' + new URLSearchParams(params()));
     }
   }).catch(() => {
-    if (!confirm('Start print? Confirm: bed clear, filament loaded.')) return;
+    if (!confirm('Start print? Confirm: clay primed (nozzle gushing), floor clear.')) return;
+    setJogUI(false);
     startTempPoll(); startFreqPoll();
     openStream('/print_stream?' + new URLSearchParams(params()));
   });
@@ -480,6 +565,16 @@ def _start_print_thread(p, dry_run=False):
 
     def do_run():
         _print_active.set()
+        # release any idle jog connection so run_print can own the serial port
+        # (only for a real print — a dry-run preview never touches the port)
+        if not dry_run:
+            with _jog_lock:
+                if _jog_printer[0]:
+                    try:
+                        _jog_printer[0].close()
+                    except Exception:
+                        pass
+                    _jog_printer[0] = None
         try:
             from main import run_print
             run_print(p=p, dry_run=dry_run, on_layer=on_layer_combined,
@@ -629,5 +724,120 @@ def print_stream():
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
+@app.route('/estop', methods=['POST'])
+def estop():
+    """EMERGENCY STOP: halt host streaming NOW and fire M112. Covers whichever
+    serial connection viz_app owns -- the live print AND/OR the idle jog. Closing
+    the port is the decisive action (stops G1 streaming instantly regardless of
+    firmware EMERGENCY_PARSER); M112 hard-kills too if the parser is enabled.
+    NOTE: cannot reach a standalone jog.py or any other process's port.
+    The physical power switch remains the ultimate stop."""
+    _stop_flag.set()
+    with _cmd_lock:
+        del _cmd_queue[:]
+    acted = []
+    for name, ref in (('print', _printer_ref), ('jog', _jog_printer)):
+        pr = ref[0]
+        if pr is None:
+            continue
+        try:
+            pr.s.write(b'\r\nM112\r\n')   # fire straight to the wire, no ok-wait
+            pr.s.flush()
+            acted.append(name + ':M112')
+        except Exception as e:
+            acted.append(name + ':werr')
+        try:
+            pr.s.close()                  # stop host streaming instantly
+        except Exception:
+            pass
+        ref[0] = None
+    _jog_e_pos[0] = 0.0
+    msg = 'E-STOP fired (' + ', '.join(acted) + ')' if acted else 'E-STOP: no live connection owned by web UI (flag set)'
+    return json.dumps({'ok': True, 'msg': msg})
+
+
+@app.route('/jog_status')
+def jog_status():
+    return json.dumps({'connected': _jog_printer[0] is not None,
+                       'e_pos': round(_jog_e_pos[0], 3),
+                       'printing': _print_active.is_set()})
+
+
+@app.route('/jog', methods=['POST'])
+def jog():
+    """Idle jog / pre-prime console. action = connect|disconnect|e|z|prime|home|
+    z0|enable|disable|pos ; mm = signed float for e/z/prime. Ceramic-safe:
+    E moves at F6 (<= the F12 AVR-crash ceiling), never retract-fast."""
+    action = request.args.get('action', '')
+    if _print_active.is_set():
+        return json.dumps({'ok': False, 'msg': 'print running — jog disabled', 'connected': False})
+    with _jog_lock:
+        try:
+            if action == 'connect':
+                if _jog_printer[0] is None:
+                    from printer import Printer
+                    from main import PORT
+                    pr = Printer(PORT, boot_wait=12.0)
+                    for c in ['M999', 'T0', 'M302 P1', 'G91', 'M17']:  # cold-extrude, relative, motors on
+                        pr.send(c)
+                    _jog_printer[0] = pr
+                    _jog_e_pos[0] = 0.0
+                return json.dumps({'ok': True, 'msg': 'connected', 'connected': True, 'e_pos': _jog_e_pos[0]})
+
+            if action == 'disconnect':
+                if _jog_printer[0]:
+                    try:
+                        _jog_printer[0].close()
+                    except Exception:
+                        pass
+                    _jog_printer[0] = None
+                return json.dumps({'ok': True, 'msg': 'disconnected', 'connected': False})
+
+            pr = _jog_printer[0]
+            if pr is None:
+                return json.dumps({'ok': False, 'msg': 'not connected', 'connected': False})
+
+            if action in ('e', 'prime'):
+                d = float(request.args.get('mm', '0'))
+                pr.send('G1 E{:.3f} F6'.format(d))
+                _jog_e_pos[0] += d
+                return json.dumps({'ok': True, 'msg': 'E {:+.3f}'.format(d),
+                                   'e_pos': round(_jog_e_pos[0], 3), 'connected': True})
+            if action == 'z':
+                d = float(request.args.get('mm', '0'))
+                pr.send('G1 Z{:.3f} F300'.format(d))
+                return json.dumps({'ok': True, 'msg': 'Z {:+.3f}'.format(d), 'connected': True})
+            if action == 'home':
+                for c in ['G90', 'G28', 'G91']:
+                    pr.send(c)
+                _jog_e_pos[0] = 0.0
+                return json.dumps({'ok': True, 'msg': 'homed', 'e_pos': 0.0, 'connected': True})
+            if action == 'z0':
+                for c in ['G90', 'G1 Z0 F300', 'G91']:
+                    pr.send(c)
+                return json.dumps({'ok': True, 'msg': 'at Z0', 'connected': True})
+            if action == 'enable':
+                pr.send('M17')
+                return json.dumps({'ok': True, 'msg': 'motors on', 'connected': True})
+            if action == 'disable':
+                pr.send('M84')
+                return json.dumps({'ok': True, 'msg': 'motors off', 'connected': True})
+            if action == 'pos':
+                pr.s.reset_input_buffer()
+                pr.s.write(b'M114\n')
+                line = ''
+                t0 = time.time()
+                while time.time() - t0 < 3:
+                    l = pr.s.readline().decode(errors='replace').strip()
+                    if l.startswith('X:'):
+                        line = l
+                        break
+                return json.dumps({'ok': True, 'msg': line or '?', 'connected': True})
+
+            return json.dumps({'ok': False, 'msg': 'unknown action: ' + action, 'connected': True})
+        except Exception as ex:
+            return json.dumps({'ok': False, 'msg': str(ex), 'connected': _jog_printer[0] is not None})
+
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
