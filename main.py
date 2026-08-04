@@ -1,4 +1,4 @@
-VERSION = "2.2-ceramic"
+VERSION = "2.3-ceramic"
 # ---------------------------------------------------------------------------
 # gen3d main -- CERAMIC + sound-reactive print engine (CREEP / groundskeeper)
 #
@@ -222,6 +222,7 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
 
     # ---- ceramic preamble: cold, cold-extrude allowed, clear BLTouch state ----
     for cmd in ['M999',            # clear any BLTouch stopped-state (silently drops G1s otherwise)
+                'M280 P0 S160',    # BLTouch self-test/alarm release -- clears a boot-stuck pin so G28 can home Z
                 'T0',
                 'M302 P1',         # ALLOW COLD EXTRUSION -- no heater on this head
                 'G21', 'G90', 'M82',   # mm, absolute XYZ, absolute E
