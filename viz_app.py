@@ -1,4 +1,4 @@
-VERSION = "3.4"
+VERSION = "3.5"
 # -*- coding: utf-8 -*-
 from flask import Flask, Response, request
 import json, time, threading, sys
@@ -118,6 +118,7 @@ button:disabled { opacity:0.35; cursor:default; }
   <label>skirt loops<input id="pSkirtLoops" type="number" value="2" min="1" max="10" step="1"></label>
   <label>np gain mm<input id="pNpGain" type="number" value="1.0" min="0" max="6" step="0.1"></label>
   <label>np threshold<input id="pNpThresh" type="number" value="1" min="0" max="20" step="0.5"></label>
+  <label>np max height mm<input id="pNpMaxLead" type="number" value="2.5" min="0.5" max="15" step="0.5"></label>
   <label style="flex-direction:row;align-items:center;gap:5px">non-planar<input id="pNonplanar" type="checkbox" checked style="width:auto"></label>
   <label style="flex-direction:row;align-items:center;gap:5px">random seam<input id="pSeamRandom" type="checkbox" checked style="width:auto"></label>
   <label>point smooth mm<input id="pPointSmooth" type="number" value="2" min="0.2" max="20" step="0.2"></label>
@@ -239,6 +240,7 @@ function params() {
     nonplanar:       document.getElementById('pNonplanar').checked ? 1 : 0,
     np_gain:         parseFloat(document.getElementById('pNpGain').value),
     np_thresh:       parseFloat(document.getElementById('pNpThresh').value),
+    np_max_lead:     parseFloat(document.getElementById('pNpMaxLead').value),
     point_smooth_mm: parseFloat(document.getElementById('pPointSmooth').value),
     pitch_centre_hz: parseFloat(document.getElementById('pPitchCentre').value),
     pitch_range_hz:  parseFloat(document.getElementById('pPitchRange').value),
@@ -350,7 +352,7 @@ function saveDefaults() {
              'pLayers','pBase','pOverhang','pSpeed','pFlow',
              'pNozzle','pBed','pSAmp','pWobble','pSpacingMin','pSpacingMax','pSpacingSens','pPointSmooth',
              'pPitchCentre','pPitchRange','pSkirtGap','pSkirtLoops',
-             'pNpGain','pNpThresh','pNonplanar','pSeamRandom'];
+             'pNpGain','pNpThresh','pNpMaxLead','pNonplanar','pSeamRandom'];
   var d = {};
   ids.forEach(function(id) {
     var el = document.getElementById(id);
@@ -597,6 +599,7 @@ def parse_params(args):
     p['nonplanar']      = int(args.get('nonplanar',        p.get('nonplanar',      1)))
     p['np_gain']        = float(args.get('np_gain',        p.get('np_gain',       1.5)))
     p['np_thresh']      = float(args.get('np_thresh',      p.get('np_thresh',     1.0)))
+    p['np_max_lead']    = float(args.get('np_max_lead',    p.get('np_max_lead',   2.5)))
     p['point_smooth_mm']  = float(args.get('point_smooth_mm',  p.get('point_smooth_mm',  2.0)))
     p['pitch_centre_hz']  = float(args.get('pitch_centre_hz',  p.get('pitch_centre_hz',  500.0)))
     p['pitch_range_hz']   = float(args.get('pitch_range_hz',   p.get('pitch_range_hz',   400.0)))

@@ -1,4 +1,4 @@
-VERSION = "2.3-ceramic"
+VERSION = "2.4-ceramic"
 # ---------------------------------------------------------------------------
 # gen3d main -- CERAMIC + sound-reactive print engine (CREEP / groundskeeper)
 #
@@ -78,10 +78,10 @@ DEFAULTS = dict(
     seam_random    = 1,       # 1 = random start point per layer, 0 = fixed at angle 0
     # non-planar height field: loud spots swell the wall taller (true non-planar Z)
     nonplanar      = 1,       # 1 = on, 0 = flat layers
-    np_gain        = 1.5,     # mm of bump height per unit of sensor value over threshold
+    np_gain        = 1.0,     # mm of bump height per unit of sensor value over threshold
     np_thresh      = 1.0,     # sensor value above which a loud spot spawns a swell
-    np_max_extra   = 3.0,     # max extra height added at one spot in one layer (mm)
-    np_max_lead    = 8.0,     # a column may not lead the mean height by more than this (mm)
+    np_max_extra   = 1.0,     # max extra height added at one spot in one layer (mm) -- gentle rise
+    np_max_lead    = 2.5,     # a spot may not rise more than this above the mean height (mm) = yoyo cap
 )
 
 
@@ -292,8 +292,8 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
     NP_ON        = int(p.get('nonplanar', 1))
     NP_GAIN      = float(p.get('np_gain', 1.5))
     NP_THRESH    = float(p.get('np_thresh', 1.0))
-    NP_MAX_EXTRA = float(p.get('np_max_extra', 3.0))
-    NP_MAX_LEAD  = float(p.get('np_max_lead', 8.0))
+    NP_MAX_EXTRA = float(p.get('np_max_extra', 1.0))
+    NP_MAX_LEAD  = float(p.get('np_max_lead', 2.5))
     SEAM_RANDOM  = int(p.get('seam_random', 1))
     FIELD        = 180
     BASE_H       = p['layer_height']
@@ -358,6 +358,7 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
         hw = 3 + int(delta * 3)                        # ramp width grows with height
         pending_bumps.append((b, delta, hw))
 
+    seam_frac = random.random()   # walking-seam phase [0,1); drifts a little each layer
     for layer in range(1, p['total_layers'] + 1):
         if stop_flag and stop_flag.is_set():
             print('Stop requested -- parking.')
@@ -383,7 +384,11 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
             n = n_next
             path.set_n(n)
             flow_on = not is_last                          # last layer bleeds stored pressure, no new E
-            seam = random.randint(0, n - 1) if SEAM_RANDOM else 0
+            if SEAM_RANDOM:
+                seam_frac = (seam_frac + random.uniform(-0.05, 0.05)) % 1.0   # walk, don't teleport
+                seam = int(seam_frac * n) % n
+            else:
+                seam = 0
             order = [(seam + k) % n for k in range(n)]
             layer_radii = [0.0] * n
 
