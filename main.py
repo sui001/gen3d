@@ -71,6 +71,9 @@ DEFAULTS = dict(
     spacing_min_mm = 1.5,     # loudest -> densest points
     spacing_max_mm = 3.0,     # quietest -> sparsest points
     spacing_sens   = 0.6,     # sensor value that reaches max density
+    # skirt prime: a ring outside the base, printed to build pressure first
+    skirt_gap_mm   = 10.0,    # distance outside the base perimeter
+    skirt_loops    = 2,       # times around (more = more pressure build)
 )
 
 
@@ -193,6 +196,7 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
     radius = p['diameter'] / 2
 
     printer = None
+    _viz = None
     if not dry_run:
         from printer import Printer
         printer = Printer(PORT, boot_wait=BOOT_WAIT)
@@ -221,17 +225,34 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
                 'M117 gen3d ceramic']:
         send(cmd)
 
-    # ---- prime blob (top-up; the real charge is the jog.py pre-prime) ----
-    e = 0.0
-    for cmd in [
-        'G0 X{} Y{} F{}'.format(PRIME_X, PRIME_Y, FEEDRATE_TRAVEL),
-        'G0 Z{:.3f} F{}'.format(p['layer_height'], FEEDRATE_TRAVEL),
-        'G1 E{:.5f} F6'.format(PRIME_ROD),   # stationary charge, slow (<=F12)
-        'G0 Z{} F{}'.format(SAFE_Z, FEEDRATE_TRAVEL),
-    ]:
-        send(cmd)
+    # ---- skirt prime: a ring ~skirt_gap_mm outside the base, printed as a
+    #      MOVING prime. Continuous motion brings the clay up to pressure and
+    #      establishes flow before the real perimeter starts. E is carried
+    #      straight into the print (no retract), so pressure never drops. ----
     e = 0.0
     send('G92 E0')
+    skirt_gap   = p.get('skirt_gap_mm', 10.0)
+    skirt_loops = max(1, int(p.get('skirt_loops', 2)))
+    skirt_r     = radius + skirt_gap
+    skirt_n     = max(24, int(2 * math.pi * skirt_r / 3.0))   # ~3mm point spacing
+    sk_pts = [(BED_CX + skirt_r * math.cos(2 * math.pi * i / skirt_n),
+               BED_CY + skirt_r * math.sin(2 * math.pi * i / skirt_n))
+              for i in range(skirt_n)]
+    send('G0 X{:.3f} Y{:.3f} F{}'.format(sk_pts[0][0], sk_pts[0][1], FEEDRATE_TRAVEL))
+    send('G0 Z{:.3f} F{}'.format(p['layer_height'], FEEDRATE_TRAVEL))
+    if PRIME_ROD > 0:                              # small stationary kick to wet the tip
+        e += PRIME_ROD
+        send('G1 E{:.5f} F6'.format(e))
+    prev_xy = sk_pts[0]
+    for _loop in range(skirt_loops):
+        for (x2, y2) in sk_pts[1:] + [sk_pts[0]]:
+            seg = math.hypot(x2 - prev_xy[0], y2 - prev_xy[1])
+            e += seg * epm
+            send('G1 X{:.3f} Y{:.3f} E{:.5f} F{}'.format(x2, y2, e, fr_print))
+            if on_point:
+                on_point(x2, y2)
+            prev_xy = (x2, y2)
+    # NOTE: e is intentionally NOT reset -- carry pressure straight into layer 1
 
     path = Gen3DPath(
         sides=p['sides'], diameter=p['diameter'], n_points=p['n_points'],
@@ -251,6 +272,7 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
     layer_times = []
     prev_mean_r = radius
     n_next = p['n_points']
+    last_xy = (BED_CX + radius, BED_CY)   # tracked so every ending can exit outward
 
     for layer in range(1, p['total_layers'] + 1):
         if stop_flag and stop_flag.is_set():
@@ -309,6 +331,7 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
             send('G1 X{:.3f} Y{:.3f} E{:.5f} F{}'.format(pt0[0], pt0[1], e, fr_print))
             if on_point:
                 on_point(pt0[0], pt0[1])
+            last_xy = pt0
 
             samples = path.samples_this_layer
             path.finish_layer(layer_radii)
@@ -342,10 +365,20 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
                 layer, '[base]' if is_base else '[wall]', z, sensor_raw, d,
                 _current_freq_hz[0], n_next, spacing_mm, eta))
 
-    # ---- end: lift straight up only. NEVER retract, NEVER park to a corner. ----
-    for cmd in ['G91',
-                'G1 Z10 F{}'.format(FEEDRATE_TRAVEL),   # relative up, no X/Y, no E
-                'G90',
+    # ---- end: ALWAYS exit radially OUTWARD (away from the print) then lift, so
+    #      any ooze drips off the work -- applies to normal finish AND cancel/stop.
+    #      Retreat direction is from centre through the last point, so the path
+    #      never crosses the print. (E-STOP is a hard kill and skips this.)
+    #      NEVER retract E, NEVER park to a bed corner (hose reach). ----
+    EXIT_OUT_MM = 15.0
+    dx = last_xy[0] - BED_CX
+    dy = last_xy[1] - BED_CY
+    d = math.hypot(dx, dy) or 1.0
+    ox = last_xy[0] + dx / d * EXIT_OUT_MM
+    oy = last_xy[1] + dy / d * EXIT_OUT_MM
+    for cmd in ['G91', 'G1 Z3 F{}'.format(FEEDRATE_TRAVEL), 'G90',        # small lift to unstick
+                'G0 X{:.3f} Y{:.3f} F{}'.format(ox, oy, FEEDRATE_TRAVEL),  # radially OUT, off the print
+                'G91', 'G1 Z12 F{}'.format(FEEDRATE_TRAVEL), 'G90',        # lift clear
                 'M84']:
         send(cmd)
 

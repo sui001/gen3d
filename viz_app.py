@@ -114,6 +114,8 @@ button:disabled { opacity:0.35; cursor:default; }
   <label>spacing min mm<input id="pSpacingMin" type="number" value="3"  min="1" max="10" step="0.5"></label>
   <label>spacing max mm<input id="pSpacingMax" type="number" value="5"  min="1" max="10" step="0.5"></label>
   <label>spacing sens  <input id="pSpacingSens" type="number" value="20" min="1" max="100" step="1"></label>
+  <label>skirt gap mm<input id="pSkirtGap" type="number" value="10" min="0" max="50" step="1"></label>
+  <label>skirt loops<input id="pSkirtLoops" type="number" value="2" min="1" max="10" step="1"></label>
   <label>point smooth mm<input id="pPointSmooth" type="number" value="2" min="0.2" max="20" step="0.2"></label>
   <label>pitch centre Hz<input id="pPitchCentre" type="number" value="500" min="50" max="5000" step="10"></label>
   <label>pitch range Hz<input  id="pPitchRange"  type="number" value="400" min="50" max="4000" step="10"></label>
@@ -156,6 +158,31 @@ button:disabled { opacity:0.35; cursor:default; }
     <button onclick="jog('e', estep())">&#9650; extrude</button>
     <button onclick="jog('e', -estep())">&#9660; retract</button>
     <button onclick="jog('prime', estep()*5)" style="border-color:#4a6;color:#8d8">PRIME 5&times;</button>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <span>fast retract</span>
+    <input id="jRewind" type="number" value="20" min="1" max="200" step="5" style="width:55px;background:#1a1a1a;color:#ccc;border:1px solid #333;font-family:monospace">
+    <span>mm @F</span>
+    <select id="jRewindFeed" style="background:#1a1a1a;color:#ccc;border:1px solid #333;font-family:monospace">
+      <option>12</option><option>18</option><option selected>24</option><option>28</option>
+    </select>
+    <button onclick="jog('rewind', document.getElementById('jRewind').value, document.getElementById('jRewindFeed').value)" style="border-color:#a84;color:#da8">&#9668;&#9668; REWIND</button>
+    <button onclick="jog('quickstop')" style="border-color:#a44;color:#d88">stop</button>
+    <span style="color:#555;font-size:10px">F12 safe; 18/24 experimental</span>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <span>XY step</span>
+    <select id="jXYstep" style="background:#1a1a1a;color:#ccc;border:1px solid #333;font-family:monospace">
+      <option>1</option><option>5</option><option selected>10</option><option>25</option><option>50</option>
+    </select>
+    <span>feed</span>
+    <select id="jXYfeed" style="background:#1a1a1a;color:#ccc;border:1px solid #333;font-family:monospace">
+      <option>300</option><option>600</option><option selected>1500</option><option>3000</option><option>6000</option>
+    </select>
+    <button onclick="jog('y', xystep(), xyfeed())">Y &#8593;</button>
+    <button onclick="jog('y', -xystep(), xyfeed())">Y &#8595;</button>
+    <button onclick="jog('x', -xystep(), xyfeed())">X &#8592;</button>
+    <button onclick="jog('x', xystep(), xyfeed())">X &#8594;</button>
   </div>
   <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
     <span>Z step</span>
@@ -201,6 +228,8 @@ function params() {
     spacing_min_mm:  parseFloat(document.getElementById('pSpacingMin').value),
     spacing_max_mm:  parseFloat(document.getElementById('pSpacingMax').value),
     spacing_sens:    parseFloat(document.getElementById('pSpacingSens').value),
+    skirt_gap_mm:    parseFloat(document.getElementById('pSkirtGap').value),
+    skirt_loops:     parseInt(document.getElementById('pSkirtLoops').value),
     point_smooth_mm: parseFloat(document.getElementById('pPointSmooth').value),
     pitch_centre_hz: parseFloat(document.getElementById('pPitchCentre').value),
     pitch_range_hz:  parseFloat(document.getElementById('pPitchRange').value),
@@ -311,7 +340,7 @@ function saveDefaults() {
   var ids = ['pSides','pDiam','pPoints','pNozzleDia','pLine','pLayerH',
              'pLayers','pBase','pOverhang','pSpeed','pFlow',
              'pNozzle','pBed','pSAmp','pWobble','pSpacingMin','pSpacingMax','pSpacingSens','pPointSmooth',
-             'pPitchCentre','pPitchRange'];
+             'pPitchCentre','pPitchRange','pSkirtGap','pSkirtLoops'];
   var d = {};
   ids.forEach(function(id) {
     var el = document.getElementById(id);
@@ -336,6 +365,8 @@ function loadDefaults() {
 let jogConnected = false;
 function estep(){ return parseFloat(document.getElementById('jEstep').value); }
 function zstep(){ return parseFloat(document.getElementById('jZstep').value); }
+function xystep(){ return parseFloat(document.getElementById('jXYstep').value); }
+function xyfeed(){ return parseInt(document.getElementById('jXYfeed').value); }
 function setJogUI(conn){
   jogConnected = conn;
   var st = document.getElementById('jState');
@@ -364,9 +395,10 @@ function jogConnect(){
     jogMsg(d.msg);
   }).catch(e=>jogMsg('error: ' + e));
 }
-function jog(action, mm){
+function jog(action, mm, feed){
   var url = '/jog?action=' + action;
   if (mm !== undefined) url += '&mm=' + mm;
+  if (feed !== undefined) url += '&f=' + feed;
   fetch(url, {method:'POST'}).then(r=>r.json()).then(d=>{
     if (d.connected === false) setJogUI(false);
     if (d.e_pos !== undefined) document.getElementById('jEpos').textContent = d.e_pos.toFixed(3);
@@ -538,6 +570,8 @@ def parse_params(args):
     p['spacing_min_mm'] = float(args.get('spacing_min_mm', p.get('spacing_min_mm', 3.0)))
     p['spacing_max_mm'] = float(args.get('spacing_max_mm', p.get('spacing_max_mm', 5.0)))
     p['spacing_sens']   = float(args.get('spacing_sens',   p.get('spacing_sens',  20.0)))
+    p['skirt_gap_mm']   = float(args.get('skirt_gap_mm',   p.get('skirt_gap_mm',  10.0)))
+    p['skirt_loops']    = int(args.get('skirt_loops',      p.get('skirt_loops',    2)))
     p['point_smooth_mm']  = float(args.get('point_smooth_mm',  p.get('point_smooth_mm',  2.0)))
     p['pitch_centre_hz']  = float(args.get('pitch_centre_hz',  p.get('pitch_centre_hz',  500.0)))
     p['pitch_range_hz']   = float(args.get('pitch_range_hz',   p.get('pitch_range_hz',   400.0)))
@@ -803,10 +837,32 @@ def jog():
                 _jog_e_pos[0] += d
                 return json.dumps({'ok': True, 'msg': 'E {:+.3f}'.format(d),
                                    'e_pos': round(_jog_e_pos[0], 3), 'connected': True})
+            if action == 'rewind':
+                # continuous fast retract for clay reload. F12 = proven-safe max
+                # rate (2x the F6 jog); 18/24 are experimental (may crash the Mega,
+                # but a reload crash is just a power-cycle, no print lost).
+                dist = abs(float(request.args.get('mm', '20')))
+                feed = max(6, min(28, int(request.args.get('f', '24'))))
+                pr.send('G1 E-{:.3f} F{}'.format(dist, feed))
+                _jog_e_pos[0] -= dist
+                secs = dist * 60.0 / feed
+                return json.dumps({'ok': True, 'msg': 'rewind {:.0f}mm @F{} (~{:.0f}s)'.format(dist, feed, secs),
+                                   'e_pos': round(_jog_e_pos[0], 3), 'connected': True})
+            if action == 'quickstop':
+                pr.s.write(b'\r\nM410\r\n')   # abort motion (needs EMERGENCY_PARSER to be instant)
+                pr.s.flush()
+                return json.dumps({'ok': True, 'msg': 'M410 quickstop sent', 'connected': True})
+            if action in ('x', 'y'):
+                d = float(request.args.get('mm', '0'))
+                feed = max(60, min(6000, int(request.args.get('f', '1500'))))  # XY only; E stays F6
+                axis = action.upper()
+                pr.send('G1 {}{:.3f} F{}'.format(axis, d, feed))
+                return json.dumps({'ok': True, 'msg': '{} {:+.3f} @F{}'.format(axis, d, feed), 'connected': True})
             if action == 'z':
                 d = float(request.args.get('mm', '0'))
-                pr.send('G1 Z{:.3f} F300'.format(d))
-                return json.dumps({'ok': True, 'msg': 'Z {:+.3f}'.format(d), 'connected': True})
+                feed = max(60, min(3000, int(request.args.get('f', '300'))))
+                pr.send('G1 Z{:.3f} F{}'.format(d, feed))
+                return json.dumps({'ok': True, 'msg': 'Z {:+.3f} @F{}'.format(d, feed), 'connected': True})
             if action == 'home':
                 for c in ['G90', 'G28', 'G91']:
                     pr.send(c)
