@@ -116,6 +116,10 @@ button:disabled { opacity:0.35; cursor:default; }
   <label>spacing sens  <input id="pSpacingSens" type="number" value="20" min="1" max="100" step="1"></label>
   <label>skirt gap mm<input id="pSkirtGap" type="number" value="10" min="0" max="50" step="1"></label>
   <label>skirt loops<input id="pSkirtLoops" type="number" value="2" min="1" max="10" step="1"></label>
+  <label>np gain mm<input id="pNpGain" type="number" value="1.5" min="0" max="6" step="0.1"></label>
+  <label>np threshold<input id="pNpThresh" type="number" value="1" min="0" max="20" step="0.5"></label>
+  <label style="flex-direction:row;align-items:center;gap:5px">non-planar<input id="pNonplanar" type="checkbox" checked style="width:auto"></label>
+  <label style="flex-direction:row;align-items:center;gap:5px">random seam<input id="pSeamRandom" type="checkbox" checked style="width:auto"></label>
   <label>point smooth mm<input id="pPointSmooth" type="number" value="2" min="0.2" max="20" step="0.2"></label>
   <label>pitch centre Hz<input id="pPitchCentre" type="number" value="500" min="50" max="5000" step="10"></label>
   <label>pitch range Hz<input  id="pPitchRange"  type="number" value="400" min="50" max="4000" step="10"></label>
@@ -207,6 +211,7 @@ const CX = W/2, CY = H/2;
 let SCALE = 4.5;
 let es = null, layerCount = 0;
 let layerStartTime = null, lastPt = null;
+let maxZ = 0;   // running max height, for the non-planar preview cue
 
 function params() {
   return {
@@ -230,6 +235,10 @@ function params() {
     spacing_sens:    parseFloat(document.getElementById('pSpacingSens').value),
     skirt_gap_mm:    parseFloat(document.getElementById('pSkirtGap').value),
     skirt_loops:     parseInt(document.getElementById('pSkirtLoops').value),
+    seam_random:     document.getElementById('pSeamRandom').checked ? 1 : 0,
+    nonplanar:       document.getElementById('pNonplanar').checked ? 1 : 0,
+    np_gain:         parseFloat(document.getElementById('pNpGain').value),
+    np_thresh:       parseFloat(document.getElementById('pNpThresh').value),
     point_smooth_mm: parseFloat(document.getElementById('pPointSmooth').value),
     pitch_centre_hz: parseFloat(document.getElementById('pPitchCentre').value),
     pitch_range_hz:  parseFloat(document.getElementById('pPitchRange').value),
@@ -340,11 +349,12 @@ function saveDefaults() {
   var ids = ['pSides','pDiam','pPoints','pNozzleDia','pLine','pLayerH',
              'pLayers','pBase','pOverhang','pSpeed','pFlow',
              'pNozzle','pBed','pSAmp','pWobble','pSpacingMin','pSpacingMax','pSpacingSens','pPointSmooth',
-             'pPitchCentre','pPitchRange','pSkirtGap','pSkirtLoops'];
+             'pPitchCentre','pPitchRange','pSkirtGap','pSkirtLoops',
+             'pNpGain','pNpThresh','pNonplanar','pSeamRandom'];
   var d = {};
   ids.forEach(function(id) {
     var el = document.getElementById(id);
-    if (el) d[id] = el.value;
+    if (el) d[id] = (el.type === 'checkbox') ? el.checked : el.value;
   });
   localStorage.setItem('gen3d_defaults', JSON.stringify(d));
   var btn = document.getElementById('btnSave');
@@ -357,7 +367,9 @@ function loadDefaults() {
   var d = JSON.parse(raw);
   Object.keys(d).forEach(function(id) {
     var el = document.getElementById(id);
-    if (el) el.value = d[id];
+    if (!el) return;
+    if (el.type === 'checkbox') el.checked = !!d[id];
+    else el.value = d[id];
   });
 }
 
@@ -417,10 +429,19 @@ function toScreen(x, y) {
   return [CX + (x - 175) * SCALE, CY - (y - 175) * SCALE];
 }
 
-function drawPoint(x, y, layer, alpha) {
+function drawPoint(x, y, layer, alpha, z) {
   const [sx, sy] = toScreen(x, y);
   const hue = (layer * 4) % 360;
-  ctx.strokeStyle = 'hsla(' + hue + ',70%,65%,' + alpha + ')';
+  // height cue: taller (non-planar swell) = brighter + slightly thicker
+  let light = 60, lw = 1.2;
+  if (z !== undefined) {
+    if (z > maxZ) maxZ = z;
+    const t = maxZ > 0 ? z / maxZ : 0;
+    light = 45 + Math.round(40 * t);
+    lw = 1.0 + 1.4 * t;
+  }
+  ctx.lineWidth = lw;
+  ctx.strokeStyle = 'hsla(' + hue + ',72%,' + light + '%,' + alpha + ')';
   if (lastPt) {
     ctx.beginPath();
     ctx.moveTo(lastPt[0], lastPt[1]);
@@ -470,7 +491,7 @@ function stopAll(sendStop) {
 function openStream(url) {
   if (es) { es.close(); es = null; }
   ctx.clearRect(0, 0, W, H);
-  layerCount = 0; lastPt = null;
+  layerCount = 0; lastPt = null; maxZ = 0;
   SCALE = 200 / (parseFloat(document.getElementById('pDiam').value) / 2 + 12);
   document.getElementById('btnViz').disabled = true;
   document.getElementById('btnPrint').disabled = true;
@@ -491,7 +512,7 @@ function openStream(url) {
       startLayer(layerCount);
       updateStatus(d);
     } else if (d.type === 'point') {
-      drawPoint(d.x, d.y, layerCount, Math.max(0.15, 1 - layerCount * 0.008));
+      drawPoint(d.x, d.y, layerCount, Math.max(0.15, 1 - layerCount * 0.008), d.z);
     } else if (d.type === 'layer_end') {
       updateStatus(d);
       lastPt = null;
@@ -572,6 +593,10 @@ def parse_params(args):
     p['spacing_sens']   = float(args.get('spacing_sens',   p.get('spacing_sens',  20.0)))
     p['skirt_gap_mm']   = float(args.get('skirt_gap_mm',   p.get('skirt_gap_mm',  10.0)))
     p['skirt_loops']    = int(args.get('skirt_loops',      p.get('skirt_loops',    2)))
+    p['seam_random']    = int(args.get('seam_random',      p.get('seam_random',    1)))
+    p['nonplanar']      = int(args.get('nonplanar',        p.get('nonplanar',      1)))
+    p['np_gain']        = float(args.get('np_gain',        p.get('np_gain',       1.5)))
+    p['np_thresh']      = float(args.get('np_thresh',      p.get('np_thresh',     1.0)))
     p['point_smooth_mm']  = float(args.get('point_smooth_mm',  p.get('point_smooth_mm',  2.0)))
     p['pitch_centre_hz']  = float(args.get('pitch_centre_hz',  p.get('pitch_centre_hz',  500.0)))
     p['pitch_range_hz']   = float(args.get('pitch_range_hz',   p.get('pitch_range_hz',   400.0)))
@@ -594,8 +619,8 @@ def _start_print_thread(p, dry_run=False):
                     'radius_delta': round(radius_delta, 4),
                     'eta_s': round(eta_s, 1), 'is_base': is_base})
 
-    def on_point(x, y):
-        _broadcast({'type': 'point', 'x': round(x, 3), 'y': round(y, 3)})
+    def on_point(x, y, z=0.0):
+        _broadcast({'type': 'point', 'x': round(x, 3), 'y': round(y, 3), 'z': round(z, 2)})
 
     def do_run():
         _print_active.set()
