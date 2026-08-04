@@ -1,4 +1,4 @@
-VERSION = "3.1"
+VERSION = "3.3"
 # -*- coding: utf-8 -*-
 from flask import Flask, Response, request
 import json, time, threading, sys

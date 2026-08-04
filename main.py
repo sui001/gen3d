@@ -1,4 +1,4 @@
-VERSION = "2.0-ceramic"
+VERSION = "2.2-ceramic"
 # ---------------------------------------------------------------------------
 # gen3d main -- CERAMIC + sound-reactive print engine (CREEP / groundskeeper)
 #
