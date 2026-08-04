@@ -1,4 +1,4 @@
-VERSION = "2.4-ceramic"
+VERSION = "2.5-ceramic"
 # ---------------------------------------------------------------------------
 # gen3d main -- CERAMIC + sound-reactive print engine (CREEP / groundskeeper)
 #
@@ -300,7 +300,8 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
     zfield       = [0.0] * FIELD          # accumulated top-surface Z at each angle bin
     active_bumps = []                     # [center_bin, delta, halfwidth_bins, age]
     pending_bumps = []                    # spawned this layer -> activate next layer
-    mean_z_ref   = [0.0]                  # running mean height (for the lead guard)
+    mean_z_ref   = [0.0]                  # running mean height (status)
+    flat_ref     = [0.0]                  # flat baseline (layers * BASE_H); swells cap vs this
 
     def _bin(a):
         return int(a / (2 * math.pi) * FIELD) % FIELD
@@ -332,10 +333,17 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
                 continue
             for db in range(-hw, hw + 1):
                 inc[(cb + db) % FIELD] += delta * taper * _kernel(abs(db), hw)
+        flat_now = flat_ref[0] + BASE_H
         for b in range(FIELD):
-            if inc[b] > BASE_H + NP_MAX_EXTRA:
+            if inc[b] > BASE_H + NP_MAX_EXTRA:          # gentle per-layer rise
                 inc[b] = BASE_H + NP_MAX_EXTRA
+            # protrusion cap: never let a spot rise more than NP_MAX_LEAD above the
+            # flat baseline (can only add clay, so trim the bump at deposit time)
+            over = (zfield[b] + inc[b]) - (flat_now + NP_MAX_LEAD)
+            if over > 0:
+                inc[b] = max(BASE_H, inc[b] - over)
             zfield[b] += inc[b]
+        flat_ref[0] = flat_now
         for bump in active_bumps:
             bump[3] += 1
         active_bumps[:] = [b for b in active_bumps if b[3] <= 2]
@@ -350,7 +358,7 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
         if amp <= NP_THRESH:
             return
         b = _bin(a)
-        if zfield[b] - mean_z_ref[0] >= NP_MAX_LEAD:   # runaway guard: don't stack a tower
+        if zfield[b] - flat_ref[0] >= NP_MAX_LEAD:     # already at max protrusion -- don't stack
             return
         delta = min(NP_MAX_EXTRA, (amp - NP_THRESH) * NP_GAIN)
         if delta <= 0.01:
