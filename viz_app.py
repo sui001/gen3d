@@ -1,4 +1,4 @@
-VERSION = "3.3"
+VERSION = "3.4"
 # -*- coding: utf-8 -*-
 from flask import Flask, Response, request
 import json, time, threading, sys
@@ -97,32 +97,32 @@ button:disabled { opacity:0.35; cursor:default; }
 
 <div class="params">
   <label>sides (0=circle)<input id="pSides"   type="number" value="0"   min="0" max="12"></label>
-  <label>diameter mm<input      id="pDiam"    type="number" value="50"  min="10" max="150"></label>
+  <label>diameter mm<input      id="pDiam"    type="number" value="40"  min="10" max="150"></label>
   <label>n points<input         id="pPoints"  type="number" value="72"  min="12" max="360"></label>
-  <label>nozzle dia mm<input    id="pNozzleDia" type="number" value="1.5" step="0.1" min="0.2" max="2.0" oninput="validate()"></label>
-  <label>line width mm<input    id="pLine"    type="number" value="2" step="0.1" min="0.2" max="2.0" oninput="validate()"></label>
-  <label>layer height mm<input  id="pLayerH"  type="number" value="0.7" step="0.1" min="0.1" max="2.0" oninput="validate()"></label>
-  <label>total layers<input     id="pLayers"  type="number" value="40"  min="1" max="500"></label>
-  <label>base layers<input      id="pBase"    type="number" value="1"   min="0" max="20"></label>
+  <label>nozzle dia mm<input    id="pNozzleDia" type="number" value="2.5" step="0.1" min="0.2" max="5.0" oninput="validate()"></label>
+  <label>line width mm<input    id="pLine"    type="number" value="2.5" step="0.1" min="0.2" max="5.0" oninput="validate()"></label>
+  <label>layer height mm<input  id="pLayerH"  type="number" value="1.0" step="0.1" min="0.1" max="3.0" oninput="validate()"></label>
+  <label>total layers<input     id="pLayers"  type="number" value="20"  min="1" max="500"></label>
+  <label>base layers<input      id="pBase"    type="number" value="0"   min="0" max="20"></label>
   <label>max overhang %<input   id="pOverhang" type="number" value="40" min="5" max="100"></label>
-  <label>print speed mm/s<input id="pSpeed"   type="number" value="15"  min="5" max="80" oninput="validate();document.getElementById('speedSlider').value=this.value;document.getElementById('speedVal').textContent=this.value+'mm/s'"></label>
-  <label>flow %<input           id="pFlow"    type="number" value="100" min="1" max="1000" oninput="syncFlowSlider(this.value)"></label>
+  <label>print speed mm/s<input id="pSpeed"   type="number" value="6"  min="1" max="80" oninput="validate();document.getElementById('speedSlider').value=this.value;document.getElementById('speedVal').textContent=this.value+'mm/s'"></label>
+  <label>flow %<input           id="pFlow"    type="number" value="200" min="1" max="1000" oninput="syncFlowSlider(this.value)"></label>
   <label>nozzle temp C<input    id="pNozzle"  type="number" value="210" min="150" max="280" oninput="document.getElementById('tempSlider').value=this.value;document.getElementById('tempVal').textContent=this.value+'°C'"></label>
   <label>bed temp C<input       id="pBed"     type="number" value="60"  min="0" max="110"></label>
-  <label>sensor amp mm<input    id="pSAmp"    type="number" value="5"   min="0.1" max="80" step="1"></label>
+  <label>sensor amp mm<input    id="pSAmp"    type="number" value="30"   min="0.1" max="80" step="1"></label>
   <label>wobble mm<input id="pWobble" type="number" value="0" min="0" max="20" step="0.5"></label>
   <label>spacing min mm<input id="pSpacingMin" type="number" value="3"  min="1" max="10" step="0.5"></label>
   <label>spacing max mm<input id="pSpacingMax" type="number" value="5"  min="1" max="10" step="0.5"></label>
   <label>spacing sens  <input id="pSpacingSens" type="number" value="20" min="1" max="100" step="1"></label>
   <label>skirt gap mm<input id="pSkirtGap" type="number" value="10" min="0" max="50" step="1"></label>
   <label>skirt loops<input id="pSkirtLoops" type="number" value="2" min="1" max="10" step="1"></label>
-  <label>np gain mm<input id="pNpGain" type="number" value="1.5" min="0" max="6" step="0.1"></label>
+  <label>np gain mm<input id="pNpGain" type="number" value="1.0" min="0" max="6" step="0.1"></label>
   <label>np threshold<input id="pNpThresh" type="number" value="1" min="0" max="20" step="0.5"></label>
   <label style="flex-direction:row;align-items:center;gap:5px">non-planar<input id="pNonplanar" type="checkbox" checked style="width:auto"></label>
   <label style="flex-direction:row;align-items:center;gap:5px">random seam<input id="pSeamRandom" type="checkbox" checked style="width:auto"></label>
   <label>point smooth mm<input id="pPointSmooth" type="number" value="2" min="0.2" max="20" step="0.2"></label>
-  <label>pitch centre Hz<input id="pPitchCentre" type="number" value="500" min="50" max="5000" step="10"></label>
-  <label>pitch range Hz<input  id="pPitchRange"  type="number" value="400" min="50" max="4000" step="10"></label>
+  <label>pitch centre Hz<input id="pPitchCentre" type="number" value="120" min="50" max="5000" step="10"></label>
+  <label>pitch range Hz<input  id="pPitchRange"  type="number" value="200" min="50" max="4000" step="10"></label>
 </div>
 <div id="warnings" style="font-size:11px;color:#c66;min-height:14px;text-align:center"></div>
 
