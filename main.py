@@ -1,4 +1,4 @@
-VERSION = "2.5-ceramic"
+VERSION = "2.6-ceramic"
 # ---------------------------------------------------------------------------
 # gen3d main -- CERAMIC + sound-reactive print engine (CREEP / groundskeeper)
 #
@@ -74,12 +74,13 @@ DEFAULTS = dict(
     # skirt prime: a ring outside the base, printed to build pressure first
     skirt_gap_mm   = 10.0,    # distance outside the base perimeter
     skirt_loops    = 2,       # times around (more = more pressure build)
-    # random seam: roll the layer start each layer so there's no fixed vertical line
-    seam_random    = 1,       # 1 = random start point per layer, 0 = fixed at angle 0
+    # seam: 0 = fixed start (smoothed with a Z ramp), 1 = walking seam (user disliked)
+    seam_random    = 0,
+    seam_ramp_pts  = 12,      # points to ramp Z over at the seam (smooth step, not harsh raise)
     # non-planar height field: loud spots swell the wall taller (true non-planar Z)
     nonplanar      = 1,       # 1 = on, 0 = flat layers
-    np_gain        = 1.0,     # mm of bump height per unit of sensor value over threshold
-    np_thresh      = 1.0,     # sensor value above which a loud spot spawns a swell
+    np_gain        = 5.0,     # bump height per unit of amp-above-baseline (adaptive trigger)
+    np_thresh      = 0.5,     # absolute floor (silence gate); the adaptive relative check does the work
     np_max_extra   = 1.0,     # max extra height added at one spot in one layer (mm) -- gentle rise
     np_max_lead    = 2.5,     # a spot may not rise more than this above the mean height (mm) = yoyo cap
 )
@@ -290,11 +291,12 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
     # goes wavy. Ramp width grows with height, so towers become hills. On top of
     # the radius/pitch/seam reactivity.
     NP_ON        = int(p.get('nonplanar', 1))
-    NP_GAIN      = float(p.get('np_gain', 1.5))
+    NP_GAIN      = float(p.get('np_gain', 5.0))
     NP_THRESH    = float(p.get('np_thresh', 1.0))
     NP_MAX_EXTRA = float(p.get('np_max_extra', 1.0))
     NP_MAX_LEAD  = float(p.get('np_max_lead', 2.5))
-    SEAM_RANDOM  = int(p.get('seam_random', 1))
+    SEAM_RANDOM  = int(p.get('seam_random', 0))
+    SEAM_RAMP    = max(1, int(p.get('seam_ramp_pts', 12)))
     FIELD        = 180
     BASE_H       = p['layer_height']
     zfield       = [0.0] * FIELD          # accumulated top-surface Z at each angle bin
@@ -302,6 +304,9 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
     pending_bumps = []                    # spawned this layer -> activate next layer
     mean_z_ref   = [0.0]                  # running mean height (status)
     flat_ref     = [0.0]                  # flat baseline (layers * BASE_H); swells cap vs this
+    amp_ema      = [0.0]                  # slow amplitude baseline for the adaptive trigger
+    NP_REL       = 1.2                    # spawn a swell when amp exceeds baseline by this factor
+    AMP_SANE_MAX = 20.0                   # amp above this = corrupted mic line, ignore
 
     def _bin(a):
         return int(a / (2 * math.pi) * FIELD) % FIELD
@@ -351,22 +356,34 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
         return inc
 
     def _maybe_spawn(a):
-        # loud point at angle a -> queue a swell for next layer (symmetric ramp)
+        # ADAPTIVE trigger: a swell spawns only when the amplitude momentarily
+        # spikes above its own recent baseline. This gives DIFFERENTIAL swells
+        # (some spots up, some not) regardless of the signal's absolute level or
+        # drift -- a fixed threshold goes all-swell (flat) or none (flat).
         if not NP_ON:
             return
         amp = sensor_fn()
-        if amp <= NP_THRESH:
+        if amp < 0 or amp > AMP_SANE_MAX:              # garbage mic line -> ignore, don't poison baseline
+            return
+        base = amp_ema[0]
+        amp_ema[0] = amp if base <= 0 else 0.03 * amp + 0.97 * base
+        if base <= 0:
+            return
+        if amp < NP_THRESH:                            # absolute floor (silence -> nothing)
+            return
+        if amp <= base * NP_REL:                       # must be a spike above recent baseline
             return
         b = _bin(a)
         if zfield[b] - flat_ref[0] >= NP_MAX_LEAD:     # already at max protrusion -- don't stack
             return
-        delta = min(NP_MAX_EXTRA, (amp - NP_THRESH) * NP_GAIN)
-        if delta <= 0.01:
+        delta = min(NP_MAX_EXTRA, (amp - base) * NP_GAIN)
+        if delta <= 0.02:
             return
         hw = 3 + int(delta * 3)                        # ramp width grows with height
         pending_bumps.append((b, delta, hw))
 
     seam_frac = random.random()   # walking-seam phase [0,1); drifts a little each layer
+    z_prev_seam = BASE_H          # Z the seam sat at last layer, so we ramp up smoothly
     for layer in range(1, p['total_layers'] + 1):
         if stop_flag and stop_flag.is_set():
             print('Stop requested -- parking.')
@@ -409,7 +426,7 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
             z0 = _zat(a0)
             pts = [pt0]
             send('G0 X{:.3f} Y{:.3f} F{}'.format(pt0[0], pt0[1], FEEDRATE_TRAVEL))
-            send('G0 Z{:.3f} F{}'.format(z0, FEEDRATE_TRAVEL))
+            send('G0 Z{:.3f} F{}'.format(z_prev_seam, FEEDRATE_TRAVEL))   # ramp START, not the full raise
             if sound_reset:
                 sound_reset()
             if on_point:
@@ -426,7 +443,11 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
                 a = 2 * math.pi * idx / n
                 x2, y2 = BED_CX + x, BED_CY + y
                 pts.append((x2, y2))
-                zp = _zat(a)
+                z_target = _zat(a)
+                if k < SEAM_RAMP:                        # smooth incline out of the seam, no harsh raise
+                    zp = z_prev_seam + (z_target - z_prev_seam) * (k / float(SEAM_RAMP))
+                else:
+                    zp = z_target
                 seg = math.hypot(x2 - prev_xy[0], y2 - prev_xy[1])
                 if flow_on:
                     e += seg * e_per_mm(p['line_width'], inc[_bin(a)])
@@ -446,6 +467,7 @@ def run_print(p=None, dry_run=False, on_layer=None, on_point=None,
             if on_point:
                 on_point(pt0[0], pt0[1], z0)
             last_xy = pt0
+            z_prev_seam = z0             # next layer ramps up from here
 
             samples = path.samples_this_layer
             path.finish_layer(layer_radii)

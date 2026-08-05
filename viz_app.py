@@ -1,4 +1,4 @@
-VERSION = "3.5"
+VERSION = "3.6"
 # -*- coding: utf-8 -*-
 from flask import Flask, Response, request
 import json, time, threading, sys
@@ -116,11 +116,11 @@ button:disabled { opacity:0.35; cursor:default; }
   <label>spacing sens  <input id="pSpacingSens" type="number" value="20" min="1" max="100" step="1"></label>
   <label>skirt gap mm<input id="pSkirtGap" type="number" value="10" min="0" max="50" step="1"></label>
   <label>skirt loops<input id="pSkirtLoops" type="number" value="2" min="1" max="10" step="1"></label>
-  <label>np gain mm<input id="pNpGain" type="number" value="1.0" min="0" max="6" step="0.1"></label>
-  <label>np threshold<input id="pNpThresh" type="number" value="1" min="0" max="20" step="0.5"></label>
+  <label>np gain mm<input id="pNpGain" type="number" value="5" min="0" max="20" step="0.5"></label>
+  <label>np threshold<input id="pNpThresh" type="number" value="0.5" min="0" max="20" step="0.1"></label>
   <label>np max height mm<input id="pNpMaxLead" type="number" value="2.5" min="0.5" max="15" step="0.5"></label>
   <label style="flex-direction:row;align-items:center;gap:5px">non-planar<input id="pNonplanar" type="checkbox" checked style="width:auto"></label>
-  <label style="flex-direction:row;align-items:center;gap:5px">random seam<input id="pSeamRandom" type="checkbox" checked style="width:auto"></label>
+  <label style="flex-direction:row;align-items:center;gap:5px">random seam<input id="pSeamRandom" type="checkbox" style="width:auto"></label>
   <label>point smooth mm<input id="pPointSmooth" type="number" value="2" min="0.2" max="20" step="0.2"></label>
   <label>pitch centre Hz<input id="pPitchCentre" type="number" value="120" min="50" max="5000" step="10"></label>
   <label>pitch range Hz<input  id="pPitchRange"  type="number" value="200" min="50" max="4000" step="10"></label>
